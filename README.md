@@ -203,6 +203,95 @@ InsightPulse is built on [LangGraph](https://github.com/langchain-ai/langgraph),
 
 <br>
 
+## KPI anomaly MVP
+
+The first KPI-monitoring step is available as reusable configuration and
+detection code. Define a `kpi_sets` list in YAML and load it with
+`load_kpi_config`; each set names the timestamp, grain, measures, optional
+dimensions, and seasonal detection thresholds. `SeasonalZScore.detect` accepts
+a DataFrame that is already aggregated to the configured grain and returns
+anomalies for each measure. With no dimensions, it checks the overall series;
+with dimensions, it checks each dimension combination separately and does not
+synthesize an additional total.
+
+For hourly data, the detector compares the latest point with earlier points at
+the same hour and weekday. Daily, weekly, and monthly grains compare matching
+weekdays, ISO week numbers, and calendar months respectively. Series with
+fewer than `min_n` matching historical values or an absolute baseline median
+below `min_volume` are skipped. Constant baselines are skipped because a MAD
+score cannot be computed. Adverse changes are marked warning at a score of 5
+and critical at 8; favorable changes are informational. This MVP does not
+generate SQL, schedule runs, or send notifications.
+
+Configuration accepts either `kpi_sets: [ ... ]` for multiple definitions or
+`kpi_set: { ... }` for one definition. KPI definitions support aggregation
+types (`sum`, `avg`, `count`, `count_distinct`, and `ratio`), simple comparison
+filters, top-N settings, and typed alert recipients. The local CSV runner
+executes the aggregations and filters in Python; it does not use the configured
+LLM or detector metadata, generate SQL, or send alerts.
+
+```yaml
+kpi_sets:
+  - name: telemetry
+    time_column: recorded_at
+    grain: hour
+    timezone: UTC
+    measures:
+      - id: cpu_usage
+        column: cpu_usage
+        direction: down_good
+    min_n: 7
+    min_volume: 20
+```
+
+```python
+from src.config import load_kpi_config
+from src.core.seasonal import SeasonalZScore
+
+kpis = load_kpi_config("kpis.yaml")
+anomalies = SeasonalZScore().detect(dataframe, kpis.kpi_sets[0])
+```
+
+### Run configured KPI analysis on a CSV
+
+Run the configured analysis from the repository root:
+
+```powershell
+python -m src.analysis --config kpis.yaml --data service.csv
+```
+
+The runner reads every `kpi_set`/`kpi_sets` and `snapshot_sets` entry and
+prints a text report. Use `--format json` for machine-readable output. With a
+KPI set, `time_column` and each configured dimension are analyzed separately
+as grouping columns, so a cohort such as `MonthsInService` works even when it
+is not a timestamp. The configured aggregations are calculated overall and
+for each group; small groups are skipped, and up to `top_n` groups are shown.
+The `where` option accepts a single safe comparison, such as
+`Churn = 'Yes'` or `MonthlyRevenue >= 50`.
+
+In this `service.csv`, `Churn` is missing on every row. The runner reports
+churned customers and churn rate as unavailable instead of incorrectly
+reporting a zero churn rate. Populate that field with actual outcomes before
+using this dataset for churn analysis. The `contribution` top-N strategy needs
+a time-series baseline, so the snapshot runner falls back to ranking by group
+size and calls out that fallback.
+
+Snapshot configs can also be analyzed by the same runner. For example:
+
+```python
+from src.config import load_kpi_config
+from src.core.snapshot import CustomerSnapshotAnalyzer
+
+config = load_kpi_config("kpis.yaml")
+report = CustomerSnapshotAnalyzer().analyze(dataframe, config.snapshot_sets[0])
+print(report)
+```
+
+This snapshot analyzer reports the overall mean and median and each configured
+group's customer count, mean, median, and difference from the overall mean.
+Groups with fewer than `min_customers` usable rows are omitted. These are
+descriptive comparisons; they do not establish causes or predict churn.
+
 ## Tests
 
 ```powershell

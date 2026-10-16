@@ -1,0 +1,50 @@
+kpi_set:
+  name: "Churn by tenure cohort"
+  llm: "claude-sonnet-5-5"
+  detector: "zscore"
+  detector_params: { baseline: tenure_curve, window: 8 }
+  source: service
+  time_column: MonthsInService
+  grain: month
+  measures:
+    - id: customers
+      agg: count_distinct
+      column: CustomerID
+      direction: neutral
+      priority: 3
+    - id: churned
+      agg: count_distinct
+      column: CustomerID
+      where: "Churn = 'Yes'"
+      direction: down_good
+      priority: 2
+    - id: churn_rate
+      agg: ratio
+      numerator: churned
+      denominator: customers
+      direction: down_good
+      priority: 1
+    - id: avg_revenue
+      agg: avg
+      column: MonthlyRevenue
+      direction: up_good
+      priority: 4
+  dimensions: [ServiceArea, CreditRating, IncomeGroup]
+  top_n: 5
+  top_n_strategy: contribution
+  alerting:
+    z_threshold: 3.0
+    min_abs_change: 20          # customers
+    min_pct_change: 0.10
+    channels: [slack, email]
+    recipients:
+      - employee: retention.lead@company.com
+        channels: [slack, email]
+        min_severity: warning
+        measures: [churn_rate, churned]
+      - team: finance
+        channels: [email]
+        min_severity: critical
+        measures: [avg_revenue]
+  min_n: 7
+  min_volume: 30
