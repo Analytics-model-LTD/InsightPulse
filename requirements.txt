@@ -39,6 +39,11 @@ orjson==3.13.0
 ormsgpack==1.12.2
 packaging==26.3
 pandas==3.0.6
+APScheduler>=3.10,<4
+psycopg[binary]>=3.2,<4
+redis>=5,<7
+scikit-learn>=1.5,<2
+scipy>=1.13,<2
 pycparser==3.11
 pydantic==2.14.1
 pydantic-settings==2.16.0

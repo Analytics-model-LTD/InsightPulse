@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -7,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Direction = Literal["up_good", "down_good", "neutral"]
 Grain = Literal["hour", "day", "week", "month"]
-Aggregation = Literal["count_distinct", "sum", "count", "avg", "ratio"]
+Aggregation = Literal["count_distinct", "sum", "count", "avg", "median", "ratio"]
 TopNStrategy = Literal["contribution", "volatility", "volume", "manual"]
 Severity = Literal["info", "warning", "critical"]
 
@@ -179,7 +180,56 @@ class KpiConfig(BaseModel):
         return self
 
 
+class TimeWindowConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lookback_days: int = Field(default=30, ge=1)
+    grain: Grain = "hour"
+    baseline_days: int = Field(default=90, ge=1)
+
+
+class MCPDataSourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    command: str = Field(min_length=1)
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    tool_name: str = Field(min_length=1)
+    tool_arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebhookConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1)
+    kind: Literal["slack", "rest"]
+    url: str = Field(min_length=1)
+    headers: dict[str, str] = Field(default_factory=dict)
+    timeout_seconds: float = Field(default=10, gt=0)
+
+
+class KPIEngineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kpi_config: KpiConfig
+    time_window: TimeWindowConfig = Field(default_factory=TimeWindowConfig)
+    data_source: MCPDataSourceConfig
+    database_url: str | None = Field(
+        default_factory=lambda: os.environ.get("DATABASE_URL")
+    )
+    redis_url: str | None = Field(default_factory=lambda: os.environ.get("REDIS_URL"))
+    frequency: str = "hourly"
+    cooldown_period_minutes: int = Field(default=60, ge=0)
+    webhooks: list[WebhookConfig] = Field(default_factory=list)
+
+
 def load_kpi_config(path: str | Path) -> KpiConfig:
     with Path(path).open(encoding="utf-8") as config_file:
         raw_config = yaml.safe_load(config_file)
     return KpiConfig.model_validate(raw_config)
+
+
+def load_engine_config(path: str | Path) -> KPIEngineConfig:
+    with Path(path).open(encoding="utf-8") as config_file:
+        raw_config = yaml.safe_load(config_file)
+    return KPIEngineConfig.model_validate(raw_config)

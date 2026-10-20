@@ -36,6 +36,7 @@ class KpiAnalyzerTests(unittest.TestCase):
                         where="Churn = 'Yes'"),
                 Measure(id="customers", agg="count_distinct", column="CustomerID"),
                 Measure(id="avg_revenue", agg="avg", column="MonthlyRevenue"),
+                Measure(id="median_revenue", agg="median", column="MonthlyRevenue"),
             ],
         )
 
@@ -47,6 +48,7 @@ class KpiAnalyzerTests(unittest.TestCase):
         self.assertIn("no non-null values", report.overall["churned"].status)
         self.assertIsNone(report.overall["churn_rate"].value)
         self.assertEqual(report.overall["avg_revenue"].value, 35)
+        self.assertEqual(report.overall["median_revenue"].value, 35)
         self.assertEqual(
             {dimension.dimension for dimension in report.dimensions},
             {"MonthsInService", "Region"},

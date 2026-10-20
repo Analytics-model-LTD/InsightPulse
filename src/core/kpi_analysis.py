@@ -224,6 +224,8 @@ class KpiAnalyzer:
             return MeasureResult(None, "no numeric values")
         if measure.agg == "sum":
             return MeasureResult(float(np.sum(usable)))
+        if measure.agg == "median":
+            return MeasureResult(float(np.median(usable)))
         return MeasureResult(float(np.mean(usable)))
 
     @staticmethod

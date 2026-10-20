@@ -34,13 +34,15 @@ Scores every numeric field against its own history and flags the points that do 
 <td width="33%" valign="top">
 
 ### 🧭 Explain
-Names the field and the row, with a score you can check. Slice-level drivers and dollar impact are on the [roadmap](#roadmap).
+
+Produces a structured root-cause hypothesis, confidence score, and business impact. Slice-level drivers and dollar impact are on the [roadmap](#roadmap).
 
 </td>
 <td width="33%" valign="top">
 
 ### 📣 Tell
-Prints structured JSON today. Plain-language stories and alerts to the right person are on the [roadmap](#roadmap).
+
+Prints structured JSON and can deliver alerts through Slack or REST webhooks, with scheduled runs and cooldown protection.
 
 </td>
 </tr>
@@ -193,13 +195,13 @@ InsightPulse is built on [LangGraph](https://github.com/langchain-ai/langgraph),
 | ✅ | MAD modified z-score detection, per numeric field | Available |
 | ✅ | JSON output with rows, fields, scores and method | Available |
 | ✅ | Unit tests | Available |
-| 🔜 | Time grains: hourly, daily, weekly and monthly runs on the last closed period | Planned |
-| 🔜 | Seasonal baselines (same hour of the week, same weekday) | Planned |
+| ✅ | Time grains: hourly, daily, weekly and monthly aggregation over a configured window | Available |
+| ✅ | Seasonal baseline DataFrames and Z-score, MAD and Isolation Forest detectors | Available |
 | 🔜 | Drivers: which slice moved, and a revenue split into traffic, conversion and order value | Planned |
-| 🔜 | Stories: a short briefing written by a language model, with every number checked against the facts | Planned |
-| 🔜 | Alerts to employees, teams and roles, with severity and escalation | Planned |
+| ✅ | Structured anomaly explanations through a LangGraph workflow with timeout/token fallbacks | Available |
+| ✅ | Slack and REST webhook delivery, scheduled jobs, and cooldown enforcement | Available |
 
-> **Design rule:** code computes, the model narrates. Every figure comes from deterministic Python, and only aggregated facts, never raw rows, are sent to a language model.
+> **Design rule:** code computes, the model narrates. Supply aggregated facts and metric metadata to the analysis workflow rather than raw rows.
 
 <br>
 
@@ -220,12 +222,13 @@ weekdays, ISO week numbers, and calendar months respectively. Series with
 fewer than `min_n` matching historical values or an absolute baseline median
 below `min_volume` are skipped. Constant baselines are skipped because a MAD
 score cannot be computed. Adverse changes are marked warning at a score of 5
-and critical at 8; favorable changes are informational. This MVP does not
-generate SQL, schedule runs, or send notifications.
+and critical at 8; favorable changes are informational. This standalone
+detector does not generate SQL, schedule runs, or send notifications; use the
+KPI engine service modules below for orchestration and delivery.
 
 Configuration accepts either `kpi_sets: [ ... ]` for multiple definitions or
 `kpi_set: { ... }` for one definition. KPI definitions support aggregation
-types (`sum`, `avg`, `count`, `count_distinct`, and `ratio`), simple comparison
+types (`sum`, `avg`, `median`, `count`, `count_distinct`, and `ratio`), simple comparison
 filters, top-N settings, and typed alert recipients. The local CSV runner
 executes the aggregations and filters in Python; it does not use the configured
 LLM or detector metadata, generate SQL, or send alerts.
@@ -291,6 +294,63 @@ This snapshot analyzer reports the overall mean and median and each configured
 group's customer count, mean, median, and difference from the overall mean.
 Groups with fewer than `min_customers` usable rows are omitted. These are
 descriptive comparisons; they do not establish causes or predict churn.
+
+### KPI engine services
+
+The reusable engine modules provide PostgreSQL configuration/execution
+metadata storage, Redis query-result caching and atomic alert cooldowns, an
+MCP stdio data connector, time-window aggregation and seasonal baselines,
+statistical/ML detectors, structured LangGraph analysis, APScheduler jobs, and
+Slack/REST notification delivery. These integrations are opt-in; the local
+CSV runner above continues to work independently. Configure database URLs and
+webhook endpoints through trusted deployment configuration rather than
+committing credentials.
+
+The engine configuration uses the existing KPI schema as a nested config:
+
+```yaml
+kpi_config:
+  kpi_sets:
+    - name: hourly-revenue
+      time_column: recorded_at
+      grain: hour
+      measures:
+        - id: revenue
+          column: revenue
+          agg: sum
+data_source:
+  command: mcp-server-example
+  args: []
+  tool_name: query_data
+  tool_arguments:
+    query: SELECT recorded_at, revenue FROM sales
+time_window:
+  lookback_days: 30
+  baseline_days: 90
+  grain: hour
+frequency: "cron:0 * * * *"
+cooldown_period_minutes: 60
+webhooks:
+  - name: incident-slack
+    kind: slack
+    url: https://hooks.slack.com/services/replace-with-deployment-secret
+```
+
+Load and validate the configuration with `load_engine_config` from
+`src.config`; database connection URLs are read from the `DATABASE_URL` and
+`REDIS_URL` environment variables when omitted from YAML. Call
+`PostgresStateBackend.ensure_schema()` before saving
+configurations or execution records. Pass a `RedisStateBackend` to
+`MCPDataConnector` as its query cache and to `NotificationDispatcher` as its
+cooldown store. `TimeSeriesCalculator` accepts a validated
+`TimeWindowConfig`; detectors are available from
+`src.core.detection.create_detector` using `zscore`, `mad`, or
+`isolation_forest`. The scheduler accepts `hourly`, `daily`, `weekly`, or a
+five-field crontab expression (optionally prefixed with `cron:`).
+
+PostgreSQL, Redis, the configured MCP server, and any LLM provider remain
+deployment-managed services; this repository does not start containers or
+apply external infrastructure automatically.
 
 ## Tests
 
