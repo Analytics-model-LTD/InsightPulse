@@ -1,0 +1,25 @@
+[
+  {
+    "name": "testing sagar",
+    "llm": "claude-sonnet-5-5",
+    "detector": "iforest",
+    "contamination": 0.03,
+    "source": "source_table",
+    "time_column": "DateColumn",
+    "grain": "month",
+    "measures": [],
+    "dimensions": "",
+    "top_n": 3,
+    "top_n_strategy": "manual",
+    "top_n_values": "",
+    "alerting": {
+      "z_threshold": 3,
+      "min_abs_change": 500,
+      "min_pct_change": 0.1,
+      "ch_email": true,
+      "ch_webhook": true,
+      "recipients": []
+    },
+    "min_n": 7
+  }
+]
